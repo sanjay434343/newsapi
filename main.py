@@ -5,71 +5,61 @@ from datetime import datetime
 
 app = FastAPI()
 
-# Open CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://laughing-eureka-xjx76p5969vfp56r-5500.app.github.dev"],
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
+# ✅ List of news RSS feeds
 RSS_FEEDS = {
-    "bbc": "https://feeds.bbci.co.uk/news/rss.xml",
-    "reuters": "https://feeds.reuters.com/reuters/topNews",
-    "guardian": "https://www.theguardian.com/world/rss",
-    "npr": "https://feeds.npr.org/1001/rss.xml"
+    "bbc": "http://feeds.bbci.co.uk/news/rss.xml",
+    "cnn": "http://rss.cnn.com/rss/edition.rss",
+    "reuters": "http://feeds.reuters.com/reuters/topNews",
+    "theverge": "https://www.theverge.com/rss/index.xml",
+    "engadget": "https://www.engadget.com/rss.xml"
 }
+
+
+def parse_feeds():
+    news_list = []
+    for source, url in RSS_FEEDS.items():
+        feed = feedparser.parse(url)
+        for entry in feed.entries[:5]:  # Limit to latest 5 per source
+            news_item = {
+                "source": source,
+                "title": entry.get("title", ""),
+                "link": entry.get("link", ""),
+                "summary": entry.get("summary", ""),
+                "published": entry.get("published", datetime.utcnow().isoformat())
+            }
+            news_list.append(news_item)
+    # Sort by publish date if available
+    news_list.sort(key=lambda x: x["published"], reverse=True)
+    return news_list
+
 
 @app.get("/")
 def root():
-    return {
-        "message": "📰 News Aggregator is running.",
-        "endpoints": ["/news", "/news/today"],
-        "sources": list(RSS_FEEDS.keys())
-    }
+    return {"message": "Welcome to the News API!"}
 
-def parse_feed(feed_url):
-    return feedparser.parse(feed_url).entries
 
 @app.get("/news")
-def get_all_news():
-    news = []
-    for name, url in RSS_FEEDS.items():
-        for item in parse_feed(url):
-            news.append({
-                "source": name,
-                "title": item.get("title"),
-                "link": item.get("link"),
-                "published": item.get("published"),
-                "summary": item.get("summary"),
-            })
-    return {
-        "total": len(news),
-        "news": news
-    }
+def get_news():
+    news = parse_feeds()
+    return {"news": news}
+
 
 @app.get("/news/today")
 def get_today_news():
-    today = datetime.utcnow().date()
-    today_news = []
+    today_str = datetime.utcnow().date().isoformat()
+    filtered = [n for n in parse_feeds() if n["published"].startswith(today_str)]
+    return {"news": filtered}
 
-    for name, url in RSS_FEEDS.items():
-        for item in parse_feed(url):
-            pub = item.get("published_parsed")
-            if not pub:
-                continue
-            pub_date = datetime(*pub[:6]).date()
-            if pub_date == today:
-                today_news.append({
-                    "source": name,
-                    "title": item.get("title"),
-                    "link": item.get("link"),
-                    "published": item.get("published"),
-                    "summary": item.get("summary"),
-                })
-
-    return {
-        "date": str(today),
-        "count": len(today_news),
-        "news": today_news
-    }
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
